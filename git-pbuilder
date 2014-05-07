@@ -36,6 +36,9 @@ shell_quote () {
     echo "$1" | sed -e "s/'/'\"'\"'/g" -e "1 s/^/'/" -e "\$ s/\$/'/"
 }
 
+# A list of Ubuntu code names which are supported by Canonical
+UBUNTU_SUITES=( utopic trusty saucy quantal precise lucid )
+
 # Set default BUILDER, DIST, and ARCH based on the name we were invoked as.
 # This allows people to create symlinks like git-pbuilder-squeeze and
 # git-qemubuilder-squeeze-amd64 pointing to git-pbuilder and auto-detecting
@@ -99,6 +102,14 @@ fi
 eval "OPTIONS=( $GIT_PBUILDER_OPTIONS )"
 OUTPUT_DIR="${GIT_PBUILDER_OUTPUT_DIR:-../}"
 
+# Are we building for Debian or Ubuntu? Default is Debian
+if $(echo "${UBUNTU_SUITES[@]}" | grep -q "${DIST:-sid}"); then
+    DISTRIBUTOR="ubuntu"
+    OPTIONS+=( --components 'main universe' )
+else
+    DISTRIBUTOR="debian"
+fi
+
 # How we handle options depends on what type of builder we're using.  Ignore
 # options if $GIT_PBUILDER_AUTOCONF is set to no.
 if [ no != "$GIT_PBUILDER_AUTOCONF" ] ; then
@@ -114,17 +125,28 @@ if [ no != "$GIT_PBUILDER_AUTOCONF" ] ; then
             # ARCH is set, use base-$DIST-$ARCH.tgz.
             : ${DIST:=sid}
             if [ -n "$ARCH" ] ; then
-                BASE="$PBUILDER_BASE/base-$DIST$EXT-$ARCH.tgz"
+                NAME="$DIST$EXT-$ARCH"
                 OPTIONS+=( --architecture "$ARCH" )
             elif [ "$DIST" = 'sid' ] ; then
                 if [ -f "$PBUILDER_BASE/base-sid.tgz" ] ; then
-                    BASE="$PBUILDER_BASE/base-sid.tgz"
+                    NAME="sid"
                 else
-                    BASE="$PBUILDER_BASE/base.tgz"
+                    NAME=""
                 fi
             else
-                BASE="$PBUILDER_BASE/base-$DIST$EXT.tgz"
+                NAME="$DIST$EXT"
             fi
+
+	    # Build an appropriate BASE based on the BASE_TYPE
+	    if [ "$DISTRIBUTOR" = "debian" ]; then
+		if [ "x${NAME}" = "x" ]; then
+		    BASE="$COWBUILDER_BASE/base.tgz"
+		else
+		    BASE="$COWBUILDER_BASE/base-${NAME}.tgz"
+		fi
+	    else
+		BASE="$PBUILDER_BASE/${NAME}-base.tgz"
+	    fi
             OPTIONS+=( --basetgz "$BASE" )
 
             # Make sure the base tarball exists.
@@ -138,6 +160,8 @@ if [ no != "$GIT_PBUILDER_AUTOCONF" ] ; then
             if [ "$DIST" = 'etch' ] || [ "$DIST" = 'ebo' ] ; then
                 OPTIONS+=( --debian-etch-workaround )
             fi
+
+	    OPTIONS+=( --aptcache "$PBUILDER_BASE/aptcache/$DIST" )
             ;;
     
         cowbuilder)
@@ -151,17 +175,28 @@ if [ no != "$GIT_PBUILDER_AUTOCONF" ] ; then
             # ARCH is set, use base-$DIST-$ARCH.cow.
             : ${DIST:=sid}
             if [ -n "$ARCH" ] ; then
-                BASE="$COWBUILDER_BASE/base-$DIST$EXT-$ARCH.cow"
+                NAME="$DIST$EXT-$ARCH"
                 OPTIONS+=( --architecture "$ARCH" )
             elif [ "$DIST" = 'sid' ] ; then
                 if [ -d "$COWBUILDER_BASE/base-sid.cow" ] ; then
-                    BASE="$COWBUILDER_BASE/base-sid.cow"
+                    NAME="sid"
                 else
-                    BASE="$COWBUILDER_BASE/base.cow"
+                    NAME=""
                 fi
             else
-                BASE="$COWBUILDER_BASE/base-$DIST$EXT.cow"
+                NAME="$DIST$EXT"
             fi
+
+	    # Build an appropriate BASE based on the DISTRIBUTOR
+	    if [ "$DISTRIBUTOR" = "debian" ]; then
+		if [ "x${NAME}" = "x" ]; then
+		    BASE="$COWBUILDER_BASE/base.cow"
+		else
+		    BASE="$COWBUILDER_BASE/base-${NAME}.cow"
+		fi
+	    else
+		BASE="$COWBUILDER_BASE/${NAME}-base.cow"
+	    fi
             OPTIONS+=( --basepath "$BASE" )
     
             # Make sure the base directory exists.
@@ -175,6 +210,8 @@ if [ no != "$GIT_PBUILDER_AUTOCONF" ] ; then
             if [ "$DIST" = 'etch' ] || [ "$DIST" = 'ebo' ] ; then
                 OPTIONS+=( --debian-etch-workaround )
             fi
+
+	    OPTIONS+=( --aptcache "$COWBUILDER_BASE/aptcache/$DIST" )
             ;;
     
         qemubuilder)
@@ -200,6 +237,14 @@ if [ no != "$GIT_PBUILDER_AUTOCONF" ] ; then
             exit 1
             ;;
     esac
+
+    if [ "$DISTRIBUTOR" = "ubuntu" ]; then
+	OPTIONS+=( --mirror ${UBUNTU_MIRROR:-"http://archive.ubuntu.com/ubuntu"} )
+	OPTIONS+=( '--debootstrapopts' '--keyring=/usr/share/keyrings/ubuntu-archive-keyring.gpg' )
+    else
+	OPTIONS+=( --mirror ${DEBIAN_MIRROR:-"http://http.us.debian.org/debian"} )
+	OPTIONS+=( '--debootstrapopts' '--keyring=/usr/share/keyrings/debian-archive-keyring.gpg' )
+    fi
 fi
 
 # If the first argument to the script is update, create, or login, run the
@@ -279,7 +324,9 @@ else
         --debbuildopts "$DEBBUILDOPTS" -- "${OPTIONS[@]}"
 fi
 status="$?"
-if [ -n "`ls ../*_source.changes`" ] ; then
+
+# Remove source changes file if not building for Ubuntu
+if [ "$DISTRIBUTOR" != "ubuntu" ] && [ -n "`ls ../*_source.changes`" ] ; then
     rm ../*_source.changes
 fi
 exit "$status"
