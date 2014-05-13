@@ -161,7 +161,7 @@ if [ no != "$GIT_PBUILDER_AUTOCONF" ] ; then
                 OPTIONS+=( --debian-etch-workaround )
             fi
 
-	    OPTIONS+=( --aptcache "$PBUILDER_BASE/aptcache/$DIST" )
+	    APTCACHE="$PBUILDER_BASE/aptcache/$DISTRIBUTOR"
             ;;
     
         cowbuilder)
@@ -211,7 +211,7 @@ if [ no != "$GIT_PBUILDER_AUTOCONF" ] ; then
                 OPTIONS+=( --debian-etch-workaround )
             fi
 
-	    OPTIONS+=( --aptcache "$COWBUILDER_BASE/aptcache/$DIST" )
+	    APTCACHE="$COWBUILDER_BASE/aptcache/$DISTRIBUTOR"
             ;;
     
         qemubuilder)
@@ -262,6 +262,10 @@ update|create|login)
     if [ -f "$HOME/.pbuilderrc" ] ; then
         OPTIONS+=( --configfile "$HOME/.pbuilderrc" )
     fi
+
+    # Create APTCACHE and add to OPTIONS
+    mkdir -p $APTCACHE 1>/dev/null 2>&1
+    OPTIONS+=( --aptcache $APTCACHE )
 
     # Run the builder.
     if [ no = "$GIT_PBUILDER_AUTOCONF" ] ; then
